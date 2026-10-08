@@ -1,0 +1,607 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, useAnimationControls, AnimatePresence } from "motion/react";
+import BrandButton from "@/components/BrandButton";
+import UserInfoForm, {
+  type ParticipantDraft,
+} from "@/components/UserInfoForm";
+import SuccessCelebration from "@/components/SuccessCelebration";
+import {
+  BETTER_LUCK,
+  DEFAULT_PRIZES,
+  isTryAgainPrize,
+  isWinPrize,
+  SLICE_DEG,
+  SPIN_DURATION_MS,
+} from "@/lib/prizes";
+import type { FlowPhase } from "@/lib/flow";
+import {
+  claimGameSessionPrize,
+  createGameSession,
+  submitParticipant,
+} from "@/lib/participants";
+import "@/styles/wheel.css";
+import "@/styles/flow.css";
+
+/** Wheel art is laid out at this size, then scaled to the live viewport. */
+const WHEEL_STAGE_W = 1000;
+const WHEEL_STAGE_H = 1100;
+const SUCCESS_HOLD_MS = 2400;
+
+type IpadFrame = {
+  landscape: boolean;
+  wheelScale: number;
+};
+
+function measureFrame(): IpadFrame {
+  const vv = window.visualViewport;
+  const width = vv?.width ?? window.innerWidth;
+  const height = vv?.height ?? window.innerHeight;
+  const landscape = width > height;
+  // Brand block + home padding, kept in step with wheel.css
+  const padTop = landscape ? 16 : 22;
+  const padBottom = landscape ? 16 : 28;
+  const padX = landscape ? 48 : 36;
+  const brand = landscape ? 78 : 68 + 6 + 104;
+  const availW = Math.max(240, width - padX);
+  const availH = Math.max(240, height - padTop - brand - padBottom);
+  const wheelScale = Math.min(
+    availW / WHEEL_STAGE_W,
+    availH / WHEEL_STAGE_H,
+  );
+  return { landscape, wheelScale };
+}
+
+const STALE_PRIZE_KEYS = [
+  "winningPrize",
+  "prizeConfigVersion",
+  "CWM",
+  "YPA",
+  "HS",
+  "GCS",
+  "AED",
+  "MB",
+  "WB",
+  "LMCH",
+  "PSU",
+  "LSU",
+];
+
+export default function SpinWheel() {
+  const [spinning, setSpinning] = useState(false);
+  const [phase, setPhase] = useState<FlowPhase>("game");
+  const [modalPrize, setModalPrize] = useState("CX Day<br />Surprise");
+  const [frame, setFrame] = useState<IpadFrame>({
+    landscape: false,
+    wheelScale: 0.62,
+  });
+  const [formSession, setFormSession] = useState(0);
+  const [gameSessionId, setGameSessionId] = useState<string | null>(null);
+  const [participantDraft, setParticipantDraft] =
+    useState<ParticipantDraft | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [savingResult, setSavingResult] = useState(false);
+
+  const totalRotation = useRef(0);
+  const controls = useAnimationControls();
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionPromiseRef = useRef<ReturnType<typeof createGameSession> | null>(
+    null,
+  );
+  const claimPromiseRef = useRef<Promise<void> | null>(null);
+  const pendingPrizeRef = useRef<string | null>(null);
+
+  const spinSoundRef = useRef<HTMLAudioElement | null>(null);
+  const winSoundRef = useRef<HTMLAudioElement | null>(null);
+  const lossSoundRef = useRef<HTMLAudioElement | null>(null);
+  const tryAgainSoundRef = useRef<HTMLAudioElement | null>(null);
+  const loopHandlerRef = useRef<(() => void) | null>(null);
+
+  const overlayOpen = phase !== "game";
+
+  useEffect(() => {
+    for (const key of STALE_PRIZE_KEYS) {
+      localStorage.removeItem(key);
+    }
+
+    const updateFrame = () => {
+      setFrame(measureFrame());
+    };
+    updateFrame();
+    window.addEventListener("resize", updateFrame);
+    window.visualViewport?.addEventListener("resize", updateFrame);
+
+    const preventPinchZoom = (event: TouchEvent) => {
+      if (event.touches.length > 1) {
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener("touchstart", preventPinchZoom, {
+      passive: false,
+    });
+    document.addEventListener("touchmove", preventPinchZoom, {
+      passive: false,
+    });
+
+    return () => {
+      window.removeEventListener("resize", updateFrame);
+      window.visualViewport?.removeEventListener("resize", updateFrame);
+      document.removeEventListener("touchstart", preventPinchZoom);
+      document.removeEventListener("touchmove", preventPinchZoom);
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
+
+  const stopSpinSound = useCallback(() => {
+    const spinSound = spinSoundRef.current;
+    if (!spinSound) return;
+    if (loopHandlerRef.current) {
+      spinSound.removeEventListener("ended", loopHandlerRef.current);
+      loopHandlerRef.current = null;
+    }
+    spinSound.pause();
+    spinSound.currentTime = 0;
+  }, []);
+
+  const playSoundLoop = useCallback(() => {
+    const spinSound = spinSoundRef.current;
+    if (!spinSound) return;
+
+    stopSpinSound();
+
+    const onEnded = () => {
+      spinSound.currentTime = 0;
+      void spinSound.play();
+    };
+    loopHandlerRef.current = onEnded;
+    spinSound.addEventListener("ended", onEnded);
+    spinSound.currentTime = 0;
+    void spinSound.play();
+  }, [stopSpinSound]);
+
+  const playResultSound = useCallback((kind: "win" | "loss" | "retry") => {
+    const sound =
+      kind === "win"
+        ? winSoundRef.current
+        : kind === "retry"
+          ? tryAgainSoundRef.current
+          : lossSoundRef.current;
+    if (!sound) return;
+    sound.currentTime = 0;
+    void sound.play();
+  }, []);
+
+  /** Back to the wheel for the next player. */
+  const returnToStart = useCallback(() => {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+    sessionPromiseRef.current = null;
+    claimPromiseRef.current = null;
+    pendingPrizeRef.current = null;
+    setParticipantDraft(null);
+    setGameSessionId(null);
+    setSubmitError(null);
+    setSavingResult(false);
+    setModalPrize("CX Day<br />Surprise");
+    setFormSession((n) => n + 1);
+    totalRotation.current = 0;
+    void controls.set({ rotate: 0 });
+    setPhase("game");
+  }, [controls]);
+
+  const ensureSessionReady = useCallback(
+    async (prizeHtml: string) => {
+      if (claimPromiseRef.current) {
+        await claimPromiseRef.current;
+      }
+
+      let sessionId = gameSessionId;
+
+      if (!sessionId && sessionPromiseRef.current) {
+        const created = await sessionPromiseRef.current;
+        if (created.ok) {
+          sessionId = created.gameSessionId;
+          setGameSessionId(created.gameSessionId);
+        } else {
+          return { ok: false as const, message: created.message };
+        }
+      }
+
+      if (!sessionId) {
+        return {
+          ok: false as const,
+          message: "Unable to save your information. Please try again.",
+        };
+      }
+
+      const claim = await claimGameSessionPrize(sessionId, prizeHtml);
+      if (!claim.ok) {
+        console.warn("[session] claim:", claim.message);
+      }
+
+      return { ok: true as const, gameSessionId: sessionId };
+    },
+    [gameSessionId],
+  );
+
+  const runSpin = useCallback(async () => {
+    if (spinning) return;
+    setSpinning(true);
+    setSubmitError(null);
+    setGameSessionId(null);
+    pendingPrizeRef.current = null;
+    claimPromiseRef.current = null;
+    setPhase("game");
+
+    // Start session in parallel — do not block the wheel
+    sessionPromiseRef.current = createGameSession().then((result) => {
+      if (result.ok) {
+        setGameSessionId(result.gameSessionId);
+      } else {
+        setSubmitError(result.message);
+      }
+      return result;
+    });
+
+    const randomSpin = Math.floor(Math.random() * 360) + 3700;
+    totalRotation.current += randomSpin;
+    const rotation = totalRotation.current;
+
+    playSoundLoop();
+
+    await controls.start({
+      rotate: rotation,
+      transition: {
+        duration: SPIN_DURATION_MS / 1000,
+        ease: [0.25, 0.1, 0.25, 1],
+      },
+    });
+
+    const normalizedRotation = rotation % 360;
+    const sliceBuffer = 0.5;
+    const adjustedRotation =
+      (360 - (normalizedRotation + SLICE_DEG / 2) + sliceBuffer) % 360;
+
+    let prizeIndex =
+      Math.floor(adjustedRotation / SLICE_DEG) % DEFAULT_PRIZES.length;
+    if (prizeIndex < 0) {
+      prizeIndex += DEFAULT_PRIZES.length;
+    }
+
+    const selectedPrize = DEFAULT_PRIZES[prizeIndex] ?? BETTER_LUCK;
+    pendingPrizeRef.current = selectedPrize;
+
+    stopSpinSound();
+    playResultSound(
+      isTryAgainPrize(selectedPrize)
+        ? "retry"
+        : isWinPrize(selectedPrize)
+          ? "win"
+          : "loss",
+    );
+
+    setModalPrize(selectedPrize);
+    setPhase("reward");
+    setSpinning(false);
+
+    claimPromiseRef.current = (async () => {
+      const session = await sessionPromiseRef.current;
+      if (!session?.ok) return;
+      const claim = await claimGameSessionPrize(
+        session.gameSessionId,
+        selectedPrize,
+      );
+      if (!claim.ok) {
+        console.warn("[spin] background claim:", claim.message);
+      }
+    })();
+  }, [
+    controls,
+    playResultSound,
+    playSoundLoop,
+    spinning,
+    stopSpinSound,
+  ]);
+
+  /** SPIN: collect details first (if needed), then spin. */
+  const handleSpinClick = useCallback(() => {
+    if (spinning || phase !== "game") return;
+    if (!participantDraft) {
+      setSubmitError(null);
+      setPhase("form");
+      return;
+    }
+    void runSpin();
+  }, [participantDraft, phase, runSpin, spinning]);
+
+  const handleFormContinue = useCallback(
+    async (data: ParticipantDraft) => {
+      setSubmitError(null);
+      setParticipantDraft(data);
+      setPhase("game");
+      // Spin right after details are collected
+      void runSpin();
+    },
+    [runSpin],
+  );
+
+  /** Try Again: keep name/contact, allow another spin. */
+  const handleTryAgain = useCallback(() => {
+    sessionPromiseRef.current = null;
+    claimPromiseRef.current = null;
+    pendingPrizeRef.current = null;
+    setGameSessionId(null);
+    setSubmitError(null);
+    setSavingResult(false);
+    setPhase("game");
+  }, []);
+
+  /** Final result (win / better luck): save to Supabase, then success. */
+  const handleFinishReward = useCallback(async () => {
+    if (!participantDraft || savingResult) return;
+
+    setSavingResult(true);
+    setSubmitError(null);
+
+    const prize = pendingPrizeRef.current ?? modalPrize;
+    const ready = await ensureSessionReady(prize);
+    if (!ready.ok) {
+      setSubmitError(ready.message);
+      setSavingResult(false);
+      return;
+    }
+
+    const result = await submitParticipant({
+      name: participantDraft.name,
+      contactNumber: participantDraft.contactNumber,
+      gameSessionId: ready.gameSessionId,
+    });
+
+    if (!result.ok) {
+      setSubmitError(result.message);
+      setSavingResult(false);
+      return;
+    }
+
+    setPhase("success");
+    setSavingResult(false);
+    successTimerRef.current = setTimeout(() => {
+      returnToStart();
+    }, SUCCESS_HOLD_MS);
+  }, [
+    ensureSessionReady,
+    modalPrize,
+    participantDraft,
+    returnToStart,
+    savingResult,
+  ]);
+
+  const handleDevReset = useCallback(() => {
+    if (spinning) return;
+    stopSpinSound();
+    returnToStart();
+  }, [returnToStart, spinning, stopSpinSound]);
+
+  return (
+    <div className="wheel-root">
+      <audio ref={spinSoundRef} src="/sound/spine.wav" preload="auto" />
+      <audio ref={winSoundRef} src="/sound/Win.mp3" preload="auto" />
+      <audio ref={lossSoundRef} src="/sound/loss.wav" preload="auto" />
+      <audio
+        ref={tryAgainSoundRef}
+        src="/sound/try-again.wav"
+        preload="auto"
+      />
+
+      <div className="wheel-scaler">
+        <div
+          className={`wheel-canvas${frame.landscape ? " is-landscape" : " is-portrait"}`}
+        >
+          <AnimatePresence>
+            {overlayOpen && (
+              <motion.div
+                key="flow-backdrop"
+                className="wheel-modal-backdrop"
+                initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
+                animate={{ opacity: 1, backdropFilter: "blur(8px)" }}
+                exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              />
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence mode="wait">
+            {phase === "form" && (
+              <motion.section
+                key={`user-form-${formSession}`}
+                className="flow-shell"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.2 } }}
+              >
+                <UserInfoForm
+                  submitError={submitError}
+                  onContinue={handleFormContinue}
+                />
+              </motion.section>
+            )}
+
+            {phase === "reward" && (
+              <motion.section
+                key={
+                  isTryAgainPrize(modalPrize)
+                    ? "try-again-popup"
+                    : "reward-popup"
+                }
+                className="wheel-window"
+                id="window"
+                initial={{ opacity: 0, scale: 0.82, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{
+                  opacity: 0,
+                  scale: 0.88,
+                  y: 12,
+                  transition: { duration: 0.22, ease: [0.4, 0, 0.2, 1] },
+                }}
+                transition={{
+                  type: "spring",
+                  stiffness: 420,
+                  damping: 20,
+                  mass: 0.72,
+                }}
+              >
+                {isTryAgainPrize(modalPrize) ? (
+                  <>
+                    <motion.div
+                      className="wheel-winchild wheel-winchild--retry"
+                      initial={{ scale: 0.86, rotate: -4 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 280,
+                        damping: 16,
+                      }}
+                    >
+                      <div className="wheel-retry-glow" aria-hidden />
+                      <div className="wheel-retry-copy">
+                        <span className="wheel-retry-label">Bonus spin</span>
+                        <h1>One more chance!</h1>
+                        <p className="wheel-retry-message">
+                          The wheel is still yours — spin again and take another
+                          shot.
+                        </p>
+                      </div>
+                    </motion.div>
+                    <BrandButton
+                      variant="default"
+                      className="wheel-reward-btn"
+                      onClick={handleTryAgain}
+                    >
+                      Try Again
+                    </BrandButton>
+                  </>
+                ) : (
+                  <>
+                    <div className="wheel-winchild">
+                      <h1 dangerouslySetInnerHTML={{ __html: modalPrize }} />
+                    </div>
+                    {submitError && (
+                      <p className="wheel-reward-error" role="alert">
+                        {submitError}
+                      </p>
+                    )}
+                    <BrandButton
+                      variant="default"
+                      className="wheel-reward-btn"
+                      disabled={savingResult}
+                      onClick={handleFinishReward}
+                    >
+                      {savingResult ? "Saving..." : "Continue"}
+                    </BrandButton>
+                  </>
+                )}
+              </motion.section>
+            )}
+
+            {phase === "success" && (
+              <motion.section
+                key="success"
+                className="flow-shell"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.2 } }}
+              >
+                <SuccessCelebration />
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          <section className="wheel-main">
+            <section
+              className={`wheel-home${frame.landscape ? " is-landscape" : " is-portrait"}`}
+            >
+              <header className="wheel-brand">
+                <img
+                  className="wheel-logo"
+                  src="/img/Fab-Logo.png"
+                  alt="First Abu Dhabi Bank"
+                  draggable={false}
+                />
+                <img
+                  className="wheel-title"
+                  src="/img/Spin%20the%20wheel%20Title.png"
+                  alt="Spin to Win"
+                  draggable={false}
+                />
+              </header>
+
+              <div className="wheel-play">
+                <div
+                  className="wheel-stage-slot"
+                  style={{
+                    width: WHEEL_STAGE_W * frame.wheelScale,
+                    height: WHEEL_STAGE_H * frame.wheelScale,
+                  }}
+                >
+                  <div
+                    className="wheel-stage"
+                    style={{ transform: `scale(${frame.wheelScale})` }}
+                  >
+                    <div className="wheel-arrow" />
+                    <motion.div
+                      className="wheel-disk"
+                      id="wheel"
+                      animate={controls}
+                      initial={{ rotate: 0 }}
+                    >
+                      <div className="wheel-mainwheel">
+                        {DEFAULT_PRIZES.map((prize, i) => (
+                          <div className="wheel-price" key={`${i}-${prize}`}>
+                            <h1 dangerouslySetInnerHTML={{ __html: prize }} />
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                    <div className="wheel-touch">
+                      <button
+                        id="spin"
+                        type="button"
+                        disabled={spinning || phase !== "game"}
+                        onClick={handleSpinClick}
+                      >
+                        SPIN
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+        </div>
+      </div>
+
+      {process.env.NODE_ENV !== "production" && (
+        <button
+          type="button"
+          className="wheel-dev-reset"
+          onClick={handleDevReset}
+          disabled={spinning}
+        >
+          Reset
+        </button>
+      )}
+
+      {phase === "game" && submitError && (
+        <p className="wheel-session-error" role="alert">
+          {submitError}
+        </p>
+      )}
+    </div>
+  );
+}
