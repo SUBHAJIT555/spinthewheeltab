@@ -38,9 +38,9 @@ SPIN
 
 | Slice | Stock |
 | --- | --- |
-| Magnetic Phone Holder Bottle | 16 |
+| Water Bottle with Magnetic Phone Holder | 16 |
 | Leather Magnetic Card Holder | 17 |
-| Green Lion M4 Phone & Tablet | 17 |
+| Phone & Tablet Stand | 17 |
 | Better Luck Next Time | 3 slices, unlimited |
 | Try Again | 2 slices, unlimited |
 

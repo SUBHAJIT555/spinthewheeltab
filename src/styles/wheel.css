@@ -223,9 +223,10 @@
 
 .wheel-price h1 {
   transform: rotate(90deg);
-  font-size: 35px;
-  margin-bottom: 100px;
-  line-height: 1.1;
+  font-size: 26px;
+  max-width: 200px;
+  margin-bottom: 72px;
+  line-height: 1.12;
   font-weight: 700;
 }
 
