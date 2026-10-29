@@ -399,13 +399,19 @@
   justify-content: center;
 }
 
-.osk-alpha {
+.osk-alpha,
+.osk-tel {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
   width: 100%;
   height: 100%;
+}
+
+.osk-tel {
+  max-width: 360px;
+  margin: 0 auto;
 }
 
 .osk-preview.is-shake {
@@ -490,6 +496,16 @@
   width: 22px;
   height: 22px;
   display: block;
+}
+
+.osk-key-tel {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 26px;
+}
+
+.osk-key-wide {
+  flex: 1 1 0;
 }
 
 .flow-success {
@@ -592,8 +608,13 @@
   min-height: 196px;
 }
 
-.wheel-canvas.is-landscape .osk-alpha {
+.wheel-canvas.is-landscape .osk-alpha,
+.wheel-canvas.is-landscape .osk-tel {
   gap: 5px;
+}
+
+.wheel-canvas.is-landscape .osk-key-tel {
+  font-size: 22px;
 }
 
 .wheel-canvas.is-landscape .osk-key {

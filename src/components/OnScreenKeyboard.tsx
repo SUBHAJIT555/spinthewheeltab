@@ -34,6 +34,13 @@ const SYM_TOP = ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="];
 const SYM_MID = ["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"];
 const SYM_BOT = [".", ",", "?", "!", "'"];
 
+const TEL_KEYS = [
+  ["1", "2", "3"],
+  ["4", "5", "6"],
+  ["7", "8", "9"],
+  ["+", "0", "#"],
+];
+
 const easeOut = [0.22, 1, 0.36, 1] as const;
 
 function ShiftIcon({ filled }: { filled: boolean }) {
@@ -206,6 +213,36 @@ export default function OnScreenKeyboard({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16, ease: easeOut }}
             >
+              {mode === "tel" ? (
+                <div className="osk-tel">
+                  {TEL_KEYS.map((row) => (
+                    <div className="osk-row" key={row.join("-")}>
+                      {row.map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className="osk-key osk-key-tel"
+                          disabled={disabled}
+                          onClick={() => pressChar(key)}
+                        >
+                          {key}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                  <div className="osk-row">
+                    <button
+                      type="button"
+                      className="osk-key osk-key-tel osk-key-wide"
+                      disabled={disabled}
+                      aria-label="Delete"
+                      onClick={onBackspace}
+                    >
+                      <BackspaceIcon />
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <div className="osk-alpha">
                 {page === "alpha" ? (
                   <>
@@ -321,6 +358,7 @@ export default function OnScreenKeyboard({
                   </>
                 )}
               </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
