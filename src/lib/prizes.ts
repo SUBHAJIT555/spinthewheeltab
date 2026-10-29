@@ -1,13 +1,17 @@
 export const BETTER_LUCK = "Better Luck<br>Next Time";
 export const TRY_AGAIN = "Try<br>Again";
 
+export const MAGNETIC_PHONE_HOLDER = "Magnetic Phone<br>Holder Bottle";
+export const LEATHER_CARD_HOLDER = "Leather Magnetic<br>Card Holder";
+export const GREEN_LION_HOLDER = "Green Lion M4<br>Phone & Tablet";
+
 export const DEFAULT_PRIZES = [
   "Better Luck<br>Next Time",
-  "Water<br>Bottle",
-  "Leather MAG<br>Card Holder",
+  MAGNETIC_PHONE_HOLDER,
+  LEATHER_CARD_HOLDER,
   "Better Luck<br>Next Time",
-  "Phone Stand<br>UGREEN",
-  "Laptop Stand<br>UGREEN",
+  GREEN_LION_HOLDER,
+  TRY_AGAIN,
   "Better Luck<br>Next Time",
   TRY_AGAIN,
 ] as const;
@@ -20,8 +24,19 @@ export function isTryAgainPrize(prizeHtml: string): boolean {
   return prizeHtml === TRY_AGAIN;
 }
 
+export const PRIZE_LIMITS = {
+  [MAGNETIC_PHONE_HOLDER]: { key: "MPHB", max: 16 },
+  [LEATHER_CARD_HOLDER]: { key: "LMCH", max: 17 },
+  [GREEN_LION_HOLDER]: { key: "GLM4", max: 17 },
+} as const;
+
 export type PrizeText = string;
+export type PrizeLimitKey =
+  (typeof PRIZE_LIMITS)[keyof typeof PRIZE_LIMITS]["key"];
 
 export const SLICE_COUNT = 8;
 export const SLICE_DEG = 360 / SLICE_COUNT;
 export const SPIN_DURATION_MS = 2500;
+
+/** Bump this whenever DEFAULT_PRIZES / PRIZE_LIMITS change so localStorage resets */
+export const PRIZE_CONFIG_VERSION = "tablet-gifts-v1";

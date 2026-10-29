@@ -527,6 +527,51 @@
   cursor: not-allowed;
 }
 
+.wheel-fullscreen {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 5000;
+  max-width: min(92vw, 360px);
+}
+
+.wheel-fullscreen-btn,
+.wheel-fullscreen-close {
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-family: var(--medium), sans-serif;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.wheel-fullscreen-tip {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(8, 18, 40, 0.94);
+  color: #fff;
+  font-family: var(--medium), sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.wheel-fullscreen-tip p {
+  margin: 0 0 10px;
+}
+
+.wheel-fullscreen-tip ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.wheel-fullscreen-tip li {
+  margin: 0 0 4px;
+}
+
 .wheel-session-error {
   position: fixed;
   left: 50%;

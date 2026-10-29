@@ -7,11 +7,14 @@ import UserInfoForm, {
   type ParticipantDraft,
 } from "@/components/UserInfoForm";
 import SuccessCelebration from "@/components/SuccessCelebration";
+import FullscreenLaunch from "@/components/FullscreenLaunch";
 import {
   BETTER_LUCK,
   DEFAULT_PRIZES,
   isTryAgainPrize,
   isWinPrize,
+  PRIZE_CONFIG_VERSION,
+  PRIZE_LIMITS,
   SLICE_DEG,
   SPIN_DURATION_MS,
 } from "@/lib/prizes";
@@ -28,6 +31,59 @@ import "@/styles/flow.css";
 const WHEEL_STAGE_W = 1000;
 const WHEEL_STAGE_H = 1100;
 const SUCCESS_HOLD_MS = 2400;
+const PRIZE_STORAGE_KEY = "winningPrize";
+const PRIZE_VERSION_KEY = "prizeConfigVersion";
+
+const LEGACY_COUNT_KEYS = [
+  "CWM",
+  "YPA",
+  "HS",
+  "GCS",
+  "AED",
+  "MB",
+  "WB",
+  "PSU",
+  "LSU",
+];
+
+function resetPrizeStorage() {
+  localStorage.setItem(PRIZE_STORAGE_KEY, JSON.stringify([...DEFAULT_PRIZES]));
+  localStorage.setItem(PRIZE_VERSION_KEY, PRIZE_CONFIG_VERSION);
+
+  for (const key of LEGACY_COUNT_KEYS) {
+    localStorage.removeItem(key);
+  }
+  for (const { key } of Object.values(PRIZE_LIMITS)) {
+    localStorage.removeItem(key);
+  }
+}
+
+function loadPrizes(): string[] {
+  if (typeof window === "undefined") return [...DEFAULT_PRIZES];
+
+  const version = localStorage.getItem(PRIZE_VERSION_KEY);
+  if (version !== PRIZE_CONFIG_VERSION) {
+    resetPrizeStorage();
+    return [...DEFAULT_PRIZES];
+  }
+
+  const stored = localStorage.getItem(PRIZE_STORAGE_KEY);
+  if (stored) {
+    try {
+      return JSON.parse(stored) as string[];
+    } catch {
+      resetPrizeStorage();
+      return [...DEFAULT_PRIZES];
+    }
+  }
+
+  return [...DEFAULT_PRIZES];
+}
+
+function getWinCount(key: string): number {
+  const value = localStorage.getItem(key);
+  return value ? parseInt(value, 10) : 0;
+}
 
 type IpadFrame = {
   landscape: boolean;
@@ -53,25 +109,12 @@ function measureFrame(): IpadFrame {
   return { landscape, wheelScale };
 }
 
-const STALE_PRIZE_KEYS = [
-  "winningPrize",
-  "prizeConfigVersion",
-  "CWM",
-  "YPA",
-  "HS",
-  "GCS",
-  "AED",
-  "MB",
-  "WB",
-  "LMCH",
-  "PSU",
-  "LSU",
-];
-
 export default function SpinWheel() {
+  const [prizes, setPrizes] = useState<string[]>([...DEFAULT_PRIZES]);
   const [spinning, setSpinning] = useState(false);
   const [phase, setPhase] = useState<FlowPhase>("game");
   const [modalPrize, setModalPrize] = useState("CX Day<br />Surprise");
+  const [hydrated, setHydrated] = useState(false);
   const [frame, setFrame] = useState<IpadFrame>({
     landscape: false,
     wheelScale: 0.62,
@@ -101,9 +144,8 @@ export default function SpinWheel() {
   const overlayOpen = phase !== "game";
 
   useEffect(() => {
-    for (const key of STALE_PRIZE_KEYS) {
-      localStorage.removeItem(key);
-    }
+    setPrizes(loadPrizes());
+    setHydrated(true);
 
     const updateFrame = () => {
       setFrame(measureFrame());
@@ -173,6 +215,14 @@ export default function SpinWheel() {
     if (!sound) return;
     sound.currentTime = 0;
     void sound.play();
+  }, []);
+
+  const convertSlices = useCallback((prizeText: string) => {
+    setPrizes((current) => {
+      const next = current.map((p) => (p === prizeText ? BETTER_LUCK : p));
+      localStorage.setItem(PRIZE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   /** Back to the wheel for the next player. */
@@ -268,13 +318,12 @@ export default function SpinWheel() {
     const adjustedRotation =
       (360 - (normalizedRotation + SLICE_DEG / 2) + sliceBuffer) % 360;
 
-    let prizeIndex =
-      Math.floor(adjustedRotation / SLICE_DEG) % DEFAULT_PRIZES.length;
+    let prizeIndex = Math.floor(adjustedRotation / SLICE_DEG) % prizes.length;
     if (prizeIndex < 0) {
-      prizeIndex += DEFAULT_PRIZES.length;
+      prizeIndex += prizes.length;
     }
 
-    const selectedPrize = DEFAULT_PRIZES[prizeIndex] ?? BETTER_LUCK;
+    const selectedPrize = prizes[prizeIndex] ?? BETTER_LUCK;
     pendingPrizeRef.current = selectedPrize;
 
     stopSpinSound();
@@ -286,8 +335,20 @@ export default function SpinWheel() {
           : "loss",
     );
 
-    setModalPrize(selectedPrize);
-    setPhase("reward");
+    const limit = PRIZE_LIMITS[selectedPrize as keyof typeof PRIZE_LIMITS];
+    if (limit) {
+      const count = getWinCount(limit.key) + 1;
+      localStorage.setItem(limit.key, String(count));
+      setModalPrize(selectedPrize);
+      setPhase("reward");
+      if (count === limit.max) {
+        setTimeout(() => convertSlices(selectedPrize), 500);
+      }
+    } else {
+      setModalPrize(selectedPrize);
+      setPhase("reward");
+    }
+
     setSpinning(false);
 
     claimPromiseRef.current = (async () => {
@@ -303,8 +364,10 @@ export default function SpinWheel() {
     })();
   }, [
     controls,
+    convertSlices,
     playResultSound,
     playSoundLoop,
+    prizes,
     spinning,
     stopSpinSound,
   ]);
@@ -385,6 +448,8 @@ export default function SpinWheel() {
   const handleDevReset = useCallback(() => {
     if (spinning) return;
     stopSpinSound();
+    resetPrizeStorage();
+    setPrizes([...DEFAULT_PRIZES]);
     returnToStart();
   }, [returnToStart, spinning, stopSpinSound]);
 
@@ -561,7 +626,7 @@ export default function SpinWheel() {
                       initial={{ rotate: 0 }}
                     >
                       <div className="wheel-mainwheel">
-                        {DEFAULT_PRIZES.map((prize, i) => (
+                        {(hydrated ? prizes : [...DEFAULT_PRIZES]).map((prize, i) => (
                           <div className="wheel-price" key={`${i}-${prize}`}>
                             <h1 dangerouslySetInnerHTML={{ __html: prize }} />
                           </div>
@@ -585,6 +650,8 @@ export default function SpinWheel() {
           </section>
         </div>
       </div>
+
+      <FullscreenLaunch />
 
       {process.env.NODE_ENV !== "production" && (
         <button
