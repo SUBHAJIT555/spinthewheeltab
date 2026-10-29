@@ -130,6 +130,8 @@
 .wheel-logo {
   height: 68px;
   filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .wheel-title {
@@ -525,6 +527,89 @@
 .wheel-dev-reset:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.wheel-reset-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 5100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 10, 24, 0.72);
+}
+
+.wheel-reset-card {
+  width: min(420px, 100%);
+  padding: 24px 22px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(8, 18, 40, 0.96);
+  color: #fff;
+  font-family: var(--medium), sans-serif;
+}
+
+.wheel-reset-card h2 {
+  font-family: var(--bold);
+  font-size: 26px;
+  margin: 0 0 10px;
+}
+
+.wheel-reset-card p {
+  margin: 0 0 18px;
+  font-size: 16px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.wheel-reset-pin {
+  margin: 0 0 10px;
+  font-family: var(--bold);
+  font-size: 28px;
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+
+.wheel-reset-error {
+  margin: 0 0 10px;
+  color: #ff8f8f;
+  text-align: center;
+  font-size: 15px;
+}
+
+.wheel-reset-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.wheel-reset-key {
+  min-height: 52px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-family: var(--bold);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.wheel-reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.wheel-reset-cancel {
+  padding: 12px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  font-family: var(--medium), sans-serif;
+  font-size: 16px;
+  cursor: pointer;
 }
 
 .wheel-fullscreen {

@@ -65,11 +65,13 @@ export default function FullscreenLaunch() {
       </button>
       {showTip && (
         <div className="wheel-fullscreen-tip">
-          <p>Safari on iPad cannot hide the address bar.</p>
+          <p>On iPad, Add to Home Screen is in the Share popover list, not the app icons.</p>
           <ol>
-            <li>Tap the Share button</li>
+            <li>Open this site in Safari</li>
+            <li>Tap the Share button (square with the arrow)</li>
+            <li>Scroll the list under the icons</li>
             <li>Tap Add to Home Screen</li>
-            <li>Open Spin to Win from the Home Screen</li>
+            <li>If it is missing, tap Edit Actions and turn it on</li>
           </ol>
           <button
             type="button"
